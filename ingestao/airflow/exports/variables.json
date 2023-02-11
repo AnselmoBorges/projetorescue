@@ -1,0 +1,5 @@
+{
+    "dados": "/usr/local/airflow/dags/dados",
+    "dados_finais": "/tmp/dados/",
+    "dados_temp": "/tmp/dados/DadosSalicNetCSV"
+}

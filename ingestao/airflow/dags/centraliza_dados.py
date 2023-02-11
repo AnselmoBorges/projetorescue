@@ -6,6 +6,12 @@ from airflow.operators.python import PythonOperator
 from airflow.contrib.hooks.wasb_hook import WasbHook
 from airflow.models import Variable
 
+### Airflow > Databricks
+from airflow.providers.databricks.operators.databricks_sql import (
+    DatabricksCopyIntoOperator,
+    DatabricksSqlOperator,
+)
+
 ### Python
 from datetime import datetime, timedelta
 import xlrd, os, glob, re, csv, shutil
@@ -19,6 +25,13 @@ PastaCSV = Variable.get("dados_temp")
 ### Cointainer Azure:
 wh = WasbHook(wasb_conn_id='dados_rescue')
 container_name = 'dados'
+blob_name = 'dados_consolidados.csv'
+arquivo_final = Variable.get("dados_finais") + blob_name
+
+### Variaveis Databricks:
+connection_id = 'databricks'
+http_path = '/sql/1.0/warehouses/7703b46712065806'
+
 lista_arquivos = os.listdir(PastaXLS)
 
 ## Funçoes:
@@ -79,26 +92,31 @@ def _dataframe_consolidado():
     dados['nome_projeto'] = dados['nome_projeto'].str.upper()
     dados = dados.sort_values('ano')
 
-    arquivo_final= Variable.get("dados_finais") + '/dados_consolidados.csv'
-    dados.to_csv (arquivo_final, index = None, header=True)
-    return arquivo_final
+    csv_final= Variable.get("dados_finais") + '/dados_consolidados.csv'
+    dados.to_csv (csv_final, index = None, header=True)
 
 def _valida_azureSA():
-    return (wh.check_for_blob(container_name, 'dados_consolidados.csv'))
+    return (wh.check_for_blob(container_name, blob_name))
 
-def _envia_arquivo(arquivo_final):
-    wh.load_file(arquivo_final, container_name, 'dados_consolidados.csv')
-    return('Arquivo consolidado enviado para o Storaage Account Azure!')
+def _envia_arquivo():
+    wh.delete_blobs(container_name, blob_name)
+    wh.load_file(arquivo_final, container_name, blob_name)
+    return('Arquivo consolidado enviado para o Storage Account Azure!')
 
 ## Default_args serve pra setarmos alguns valores padrões que serão usados
 ## nas DAGS, sem a necessidade de repetirmos varias vezes no código.
-default_args = {
-    'retry': 5,
-    'retry_interval': timedelta(minutes=5)
-}
+default_args = {'owner': 'airflow',
+                'start_date': datetime(2023,1,28),
+                'concurrency': 1,
+                'retry': 3,
+                'retry_interval': timedelta(minutes=1)
+                }
 
 ## Declarando a DAG:
-with DAG (dag_id='ingestao_rescue', schedule_interval=timedelta(minutes=30), start_date=datetime(2023,1,28), catchup=False) as dag:
+with DAG (dag_id='ingestao_rescue', 
+          schedule_interval=timedelta(minutes=30), 
+          start_date=datetime(2023,1,28), 
+          catchup=False) as dag:
 
     cria_diretorio_temp = BashOperator(
         task_id="cria_diretorio_temp",
@@ -130,5 +148,24 @@ with DAG (dag_id='ingestao_rescue', schedule_interval=timedelta(minutes=30), sta
         python_callable=_envia_arquivo
     )
 
+    cria_estrutura_db = DatabricksSqlOperator(
+        databricks_conn_id=connection_id,
+        http_path=http_path,
+        task_id="cria_estrutura_db",
+        sql='sql/tabelaraw.sql'
+    )
+
+    ingestao_raw_db = DatabricksCopyIntoOperator(
+        task_id="ingestao_raw_db",
+        databricks_conn_id=connection_id,
+        http_path=http_path,
+        table_name="hive_metastore.rescue_b.dados_consolidados",
+        file_format="CSV",
+        file_location="abfss://dados@dadosrescue.dfs.core.windows.net/dados_consolidados.csv",
+        format_options={"header": "true"},
+        force_copy=True,
+    )
+
 cria_diretorio_temp >> convertendo_dados >> dataframe_consolidado >> limpa_diretorio_temp 
-dataframe_consolidado >> valida_azure >> envia_arquivo 
+dataframe_consolidado >> valida_azure >> envia_arquivo
+dataframe_consolidado >> cria_estrutura_db >> ingestao_raw_db
