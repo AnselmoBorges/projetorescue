@@ -22,15 +22,17 @@ import pandas as pd
 PastaXLS = Variable.get("dados") + '/DadosSalicNetXLS'
 PastaCSV = Variable.get("dados_temp")
 
+
 ### Cointainer Azure:
 wh = WasbHook(wasb_conn_id='dados_rescue')
 container_name = 'dados'
 blob_name = 'dados_consolidados.csv'
 arquivo_final = Variable.get("dados_finais") + blob_name
+arquivo_final_adls = Variable.get("adls_path") + blob_name
 
 ### Variaveis Databricks:
 connection_id = 'databricks'
-http_path = '/sql/1.0/warehouses/7703b46712065806'
+http_path = Variable.get("http_path")
 
 lista_arquivos = os.listdir(PastaXLS)
 
@@ -161,7 +163,7 @@ with DAG (dag_id='ingestao_rescue',
         http_path=http_path,
         table_name="hive_metastore.rescue_b.dados_consolidados",
         file_format="CSV",
-        file_location="abfss://dados@dadosrescue.dfs.core.windows.net/dados_consolidados.csv",
+        file_location=arquivo_final_adls,
         format_options={"header": "true"},
         force_copy=True,
     )
