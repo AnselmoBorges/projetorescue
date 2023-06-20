@@ -171,3 +171,5 @@ with DAG (dag_id='ingestao_rescue',
 cria_diretorio_temp >> convertendo_dados >> dataframe_consolidado >> limpa_diretorio_temp 
 dataframe_consolidado >> valida_azure >> envia_arquivo
 dataframe_consolidado >> cria_estrutura_db >> ingestao_raw_db
+
+### Fim!
