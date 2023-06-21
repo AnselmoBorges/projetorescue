@@ -1,5 +1,7 @@
 {
+    "adls_path": "abfss://dados@projetorescue.dfs.core.windows.net/",
     "dados": "/usr/local/airflow/dags/dados",
     "dados_finais": "/tmp/dados/",
-    "dados_temp": "/tmp/dados/DadosSalicNetCSV"
+    "dados_temp": "/tmp/dados/DadosSalicNetCSV",
+    "http_path": "/sql/1.0/warehouses/e81002101701377e"
 }

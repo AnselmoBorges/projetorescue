@@ -28,7 +28,7 @@ wh = WasbHook(wasb_conn_id='dados_rescue')
 container_name = 'dados'
 blob_name = 'dados_consolidados.csv'
 arquivo_final = Variable.get("dados_finais") + blob_name
-arquivo_final_adls = Variable.get("adls_path") + blob_name
+arquivo_final_adls = Variable.get("adls_path") + 'csvs/' + blob_name
 
 ### Variaveis Databricks:
 connection_id = 'databricks'
@@ -39,19 +39,19 @@ lista_arquivos = os.listdir(PastaXLS)
 ## Funçoes:
 def _converte_arquivos():
     for i in lista_arquivos:
-        ano = (re.findall("dados_pj_(\d+).xls", i))[0]
-        wb = xlrd.open_workbook(PastaXLS + '/' + i, encoding_override='ISO-8859-1')
-        arquivoExcel = pd.read_excel(wb).assign(ano_corrente=ano)
-        nome = i.rpartition('.')[0]
-        arquivo = PastaCSV + '/' + nome + '.csv'
-        print('Gerando o arquivo: ' + arquivo)
-        arquivoExcel.to_csv(arquivo, index = None, header=True)
+        ano = re.search(r'\d+', i).group()
+        wb = xlrd.open_workbook(f"{PastaXLS}/{i}", encoding_override='ISO-8859-1')
+        arquivoExcel = pd.read_excel(wb)
+        arquivoExcel['ano_corrente'] = ano
+        nome = os.path.splitext(i)[0]
+        arquivo = f"{PastaCSV}/{nome}.csv"
+        print(f"Gerando o arquivo: {arquivo}")
+        arquivoExcel.to_csv(arquivo, index=None, header=True)
 
         ## Mudando o nome do header dos arquivos
-        headerCagado = arquivo
-        headerBacana = os.path.splitext(headerCagado)[0] + "_nh.csv"
+        nome_header_corrigido = f"{os.path.splitext(arquivo)[0]}_nh.csv"
 
-        with open(headerCagado, newline='') as entrada, open(headerBacana, 'w', newline='') as saida:
+        with open(arquivo, newline='') as entrada, open(nome_header_corrigido, 'w', newline='') as saida:
             r = csv.reader(entrada)
             w = csv.writer(saida)
 
@@ -62,8 +62,9 @@ def _converte_arquivos():
                 w.writerow(row)
 
         ## Sobrescrevendo o CSV zuado com o corrigido:
-        shutil.move(headerBacana, arquivo)
-        print('Corrigindo o header do arquivo: ' + arquivo)
+        shutil.move(nome_header_corrigido, arquivo)
+        print(f"Corrigindo o header do arquivo: {arquivo}")
+
 
 def _dataframe_consolidado():
     ## Unindo os CSVs em um único Dataframe
@@ -101,8 +102,8 @@ def _valida_azureSA():
     return (wh.check_for_blob(container_name, blob_name))
 
 def _envia_arquivo():
-    wh.delete_blobs(container_name, blob_name)
-    wh.load_file(arquivo_final, container_name, blob_name)
+    #wh.delete_blobs(container_name, 'csvs/' + blob_name)
+    wh.load_file(arquivo_final, container_name, 'csvs/' + blob_name)
     return('Arquivo consolidado enviado para o Storage Account Azure!')
 
 ## Default_args serve pra setarmos alguns valores padrões que serão usados
@@ -161,15 +162,12 @@ with DAG (dag_id='ingestao_rescue',
         task_id="ingestao_raw_db",
         databricks_conn_id=connection_id,
         http_path=http_path,
-        table_name="hive_metastore.rescue_b.dados_consolidados",
+        table_name="projetorescue.rescue_b.dados_consolidados",
         file_format="CSV",
         file_location=arquivo_final_adls,
         format_options={"header": "true"},
         force_copy=True,
     )
 
-cria_diretorio_temp >> convertendo_dados >> dataframe_consolidado >> limpa_diretorio_temp 
-dataframe_consolidado >> valida_azure >> envia_arquivo
-dataframe_consolidado >> cria_estrutura_db >> ingestao_raw_db
-
-### Fim!
+cria_diretorio_temp >> convertendo_dados >> dataframe_consolidado >> valida_azure >> envia_arquivo
+envia_arquivo >> cria_estrutura_db >> ingestao_raw_db >> limpa_diretorio_temp
